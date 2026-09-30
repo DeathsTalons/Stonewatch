@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Stonewatch: a solo city builder</title>
+<title>Ibory</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Alegreya+Sans:wght@400;500;700&display=swap" rel="stylesheet">
@@ -80,6 +80,8 @@ table.simtab input{width:100%;min-width:0;padding:5px 6px;text-align:right;font-
 .mstrip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px}
 .mstrip summary{cursor:pointer;color:var(--ink)}
 .mlist{display:grid;gap:4px;margin-top:6px}
+.mbtns{display:flex;gap:14px;justify-content:flex-end;margin:-2px 0 4px}
+.bq .mbtns{grid-column:1/-1;justify-content:flex-start;margin:0}
 .mrowl{display:flex;justify-content:space-between;gap:10px;font-size:.9rem;border-left:3px solid var(--line);padding-left:8px}
 .mrowl span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mrowl.out{border-color:#e05a4f} .mrowl.back{border-color:var(--brass)} .mrowl.friend{border-color:#5fa36a}
@@ -481,7 +483,7 @@ var DEF = {
   rally:{name:"Rally Spot",cost:{food:100,lumber:300,stone:200,iron:100},t:60,unique:true,
     desc:"Where armies muster. Each level allows one more march at a time and 10,000 more troops per march."},
   warehouse:{name:"Warehouse",cost:{food:100,lumber:250,stone:250,iron:50},t:45,
-    desc:"Protects resources from plunder once the map arrives. Caps Stockpile."},
+    desc:"Protects resources from plunder when AI lords raid you, and holds your auto-train reserve. Caps Stockpile."},
   farm:{name:"Farm",cost:{food:25,lumber:60,stone:40,iron:20},t:30,res:"food",desc:"Grows food."},
   sawmill:{name:"Sawmill",cost:{food:50,lumber:30,stone:50,iron:20},t:30,res:"lumber",desc:"Cuts lumber."},
   quarry:{name:"Quarry",cost:{food:50,lumber:60,stone:20,iron:20},t:30,res:"stone",desc:"Cuts stone."},
@@ -504,12 +506,12 @@ var TECH = {
   horsebackriding:{g:"Movement",name:"Horseback Riding",b:"stable",desc:"+5% speed for cavalry and machines per level"},
   compass:{g:"Movement",name:"Compass",b:"rally",desc:"+10% speed for infantry per level"},
   cartography:{g:"Movement",name:"Cartography",b:"rally",tm:1.3,desc:"Armies travel the map 10% faster per level (march time only; battlefield speed still comes from Compass and Horseback Riding)"},
-  logistics:{g:"Movement",name:"Logistics",b:"rally",desc:"+10% carrying load per level (for plunder, with the map)"},
-  informatics:{g:"City and defense",name:"Informatics",desc:"Better scout reports (with the map)"},
-  stockpile:{g:"City and defense",name:"Stockpile",b:"warehouse",desc:"+10% warehouse protection per level (with the map)"},
+  logistics:{g:"Movement",name:"Logistics",b:"rally",desc:"+10% carrying load per level, so every army hauls home more plunder"},
+  informatics:{g:"City and defense",name:"Informatics",desc:"Trains your spies: required before you can recruit Scouts"},
+  stockpile:{g:"City and defense",name:"Stockpile",b:"warehouse",desc:"+10% warehouse protection against AI raids per level"},
   engineering:{g:"City and defense",name:"Engineering",b:"workshop",desc:"+10% wall durability and archer tower toughness per level; unlocks Rolling Logs"},
-  machinery:{g:"City and defense",name:"Machinery",b:"workshop",desc:"Unlocks Defensive Trebuchets; faster fortification repair once raids exist"},
-  privateering:{g:"City and defense",name:"Privateering",b:"rally",desc:"Plunder more from rival warehouses (with the map)"}
+  machinery:{g:"City and defense",name:"Machinery",b:"workshop",desc:"Unlocks Defensive Trebuchets, and repairs 5% of fortifications lost in each defense per level (up to 50%)"},
+  privateering:{g:"City and defense",name:"Privateering",b:"rally",desc:"+5% plunder from NPC cities, AI lords and historic cities per level"}
 };
 var TECH_COST = {food:300,lumber:300,stone:300,iron:300,gold:150}, TECH_T = 120;
 function techReqs(k,L){ var r=[["academy",L]]; if (TECH[k].b) r.push([TECH[k].b,L]); return r; }
@@ -999,7 +1001,7 @@ function ownedIds(){ var me=C().id; return Object.keys(S.map.owned).filter(funct
 function valleyBonus(){ var o={food:0,lumber:0,stone:0,iron:0}; ownedIds().forEach(function(id){ var q=TILE_BY[id]; if (q && VTYPES[q.k] && VTYPES[q.k].res) o[VTYPES[q.k].res]+=VALLEY_BONUS*q.L; }); return o; }
 function rallyLv(){ return bLevel("rally"); }
 function marchSpeed(t){ var r=simResearch(), s=Infinity; t.forEach(function(n,i){ if (n>0) s=Math.min(s, effStats(i,r).speed); }); return s===Infinity?0:s; }
-function travelMs(t,q){ var sp=marchSpeed(t); return sp ? Math.max(1, tdist(q))*36000/sp*1000/(1+0.1*(S.tech.cartography||0)) : 0; }
+function travelMs(t,q,heroId){ var sp=marchSpeed(t), h=heroId?heroById(heroId):null; return sp ? Math.max(1, tdist(q))*36000/sp*1000/(1+0.1*(S.tech.cartography||0))/(1+hs(h,"int")/100) : 0; }
 function allowedMedals(L){ return L>=10 ? [0,1,2,3,4,5,6,7,8] : L>=5 ? [0,1,2,3,4,5,6] : L===4 ? [0,1,2,3] : L===3 ? [0,1,2] : L===2 ? [0,1] : [0]; }
 function medalChance(L){ return 0.02 + 0.004*Math.min(L,18); }
 function friendlyArrive(m){
@@ -1060,6 +1062,7 @@ function resolveMarch(m){
   var loot={food:0,lumber:0,stone:0,iron:0,gold:0};
   if (won){
     var cap=0; for (i=0;i<12;i++) cap += r.attacker[i]*LOAD[i]*(1+0.1*(S.tech.logistics||0));
+    if (q.k==="npc"||q.k==="ai"||q.k==="hc") cap *= 1+0.05*(S.tech.privateering||0);
     var tot=RES.reduce(function(a,k){ return a+cur.res[k]; },0), take=tot?Math.min(1,cap/tot):0;
     RES.forEach(function(k){ loot[k]=Math.floor(cur.res[k]*take); });
   }
@@ -1073,6 +1076,8 @@ function resolveMarch(m){
     if (Math.random()<0.35){ var ns=1+Math.floor(Math.random()*(1+Math.floor(dl/3))); S.items.gemD=(S.items.gemD||0)+ns; drops.push(ns+" Delicate Gem"+(ns>1?"s":"")); }
     if (dl>=5 && Math.random()<0.04+0.01*(dl-5)){ var nf=1+(Math.random()<0.3?1:0); S.items.gemF=(S.items.gemF||0)+nf; drops.push(nf+" Flawless Gem"+(nf>1?"s":"")); }
     if (Math.random()<0.006+0.0015*dl){ var gp=makeGear(gearTierFor(q.k==="hc"?12:dl)); drops.push(gearName(gp)); }
+    if ((q.k==="npc"||q.k==="ai"||q.k==="hc") && dl>=10 && Math.random()<0.007){ S.items.ensign=(S.items.ensign||0)+1; drops.push("a War Ensign"); }
+    if ((q.k==="npc"||q.k==="ai"||q.k==="hc") && dl>=7 && Math.random()<0.01){ S.items.marchsp=(S.items.marchsp||0)+1; drops.push("a March Speed-up"); }
     if ((q.k==="npc"||q.k==="ai") && Math.random()<0.015){ S.items.teleport=(S.items.teleport||0)+1; drops.push("a City Teleport"); }
   }
   var occ=false;
@@ -1139,7 +1144,7 @@ function processAuto(){
     if (!pr.auto || !pr.farm.length) return;
     if (S.marches.some(function(m){ return m.city===C().id && m.preset===pi; })) return;
     if (cityMarches().length>=rl || !presetReady(pr)) return;
-    var nid=pr.farm[pr.idx % pr.farm.length], nq=nid&&TILE_BY[nid]; if (nq && S.res.food < marchFood(pr.t,"attack",travelMs(pr.t,nq))) return; // wait for rations
+    var nid=pr.farm[pr.idx % pr.farm.length], nq=nid&&TILE_BY[nid]; if (nq && S.res.food < marchFood(pr.t,"attack",travelMs(pr.t,nq,presetHero(pr)?pr.hero:0))) return; // wait for rations
     var h=pr.hero?heroById(pr.hero):null;
     if (h && C().heroes.indexOf(h)>=0 && (h.away || h.id===S.mayor)) return; // wait for the hero
     var tries=0; while (tries<pr.farm.length && !farmTarget(pr.farm[pr.idx % pr.farm.length])){ pr.farm.splice(pr.idx % pr.farm.length,1); tries++; if (!pr.farm.length) return; }
@@ -1176,7 +1181,7 @@ function wavesSheet(){
   var d=waveDraft, q=TILE_BY[d.tile], h='<div class="head"><span class="ico">'+ICON.hourglass+'</span><div><h2>Timed waves on '+esc(tileName(q))+'</h2><div class="sub">('+q.x+', '+q.y+'), '+tdist(q).toFixed(1)+' tiles away</div></div></div>';
   h+='<p class="hint">Pick how many waves each preset sends, in order. Every wave is timed to land the chosen number of seconds after the one before it. Troops leave home now and wait at the gate until their launch time.</p>';
   h+='<div class="tscroll"><table class="gt" style="min-width:0"><tbody>';
-  S.presets.forEach(function(pr,pi){ var tm=presetTotal(pr)?travelMs(pr.t,q):0;
+  S.presets.forEach(function(pr,pi){ var ph=presetHero(pr), tm=presetTotal(pr)?travelMs(pr.t,q,ph?ph.id:0):0;
     h+='<tr><td>'+esc(pr.name)+'<div class="dur">'+presetSummary(pr)+(tm?', travel '+fmtT(realMs(tm)):'')+'</div></td><td><input type="number" min="0" max="10" data-wave="'+pi+'" value="'+(d.n[pi]||"")+'" placeholder="0" aria-label="Waves from '+esc(pr.name)+'"></td></tr>'; });
   h+='</tbody></table></div>';
   h+='<div class="mrow"><label for="wgap">Seconds between landings</label><input type="number" id="wgap" min="0" value="'+d.gap+'">'+
@@ -1188,7 +1193,7 @@ var waveDraft=null;
 function wavePlan(){
   var d=waveDraft, q=TILE_BY[d.tile], list=[], need=[0,0,0,0,0,0,0,0,0,0,0,0], heroUsed={};
   S.presets.forEach(function(pr,pi){ for (var k=0;k<(d.n[pi]||0);k++){ var hero=presetHero(pr); var hid = hero && !hero.away && hero.id!==S.mayor && !heroUsed[hero.id] ? hero.id : 0; if (hid) heroUsed[hid]=1;
-    list.push({pi:pi, t:pr.t.slice(), hero:hid, travel:travelMs(pr.t,q)}); pr.t.forEach(function(n,i){ need[i]+=n; }); } });
+    list.push({pi:pi, t:pr.t.slice(), hero:hid, travel:travelMs(pr.t,q,hid)}); pr.t.forEach(function(n,i){ need[i]+=n; }); } });
   var why="";
   if (!rallyLv()) why="Build a Rally Spot first";
   else if (!list.length) why="Choose at least one wave";
@@ -1526,7 +1531,7 @@ function renderMarchBox(){
   else if (!S.marches.length) h+='<p class="hint">No armies in the field.</p>';
   S.marches.filter(function(m){ return m.city===C().id || true; }).forEach(function(m){
     var q=TILE_BY[m.tile], n=m.t.reduce(function(a,b){return a+b;},0);
-    h+='<div class="bq"><span>'+((m.preset!=null||m.label!=null)?'<b>'+esc(S.cities[cityIndex(m.city)].presets[m.preset!=null?m.preset:m.label].name)+'</b>: ':'')+(m.phase==="wait"?"Wave queued for "+esc(tileName(q)):m.phase!=="back"?({occupy:"Occupying ",found:"Founding at ",transport:"Carrying resources to ",reinforce:"Reinforcing ",attack:"Attacking ",conquer:"Conquering "}[m.mission])+esc(tileName(q)):"Returning from "+esc(tileName(q)))+(S.cities.length>1?' ('+esc(S.cities[cityIndex(m.city)].name)+')':'')+', '+fmt(n)+' troops</span><span class="qtime" id="mt-'+m.id+'"></span></div>';
+    h+='<div class="bq"><span>'+((m.preset!=null||m.label!=null)?'<b>'+esc(S.cities[cityIndex(m.city)].presets[m.preset!=null?m.preset:m.label].name)+'</b>: ':'')+(m.phase==="wait"?"Wave queued for "+esc(tileName(q)):m.phase!=="back"?({occupy:"Occupying ",found:"Founding at ",transport:"Carrying resources to ",reinforce:"Reinforcing ",attack:"Attacking ",conquer:"Conquering "}[m.mission])+esc(tileName(q)):"Returning from "+esc(tileName(q)))+(S.cities.length>1?' ('+esc(S.cities[cityIndex(m.city)].name)+')':'')+', '+fmt(n)+' troops</span><span class="qtime" id="mt-'+m.id+'"></span>'+(m.city===C().id?marchBtns(m):'')+'</div>';
   });
   var held=ownedIds();
   h+='</div><div class="section"><div class="shead"><h3>Held valleys</h3><span class="dur">'+held.length+' / '+S.th+'</span></div>';
@@ -1578,13 +1583,13 @@ function openMarch(tile, mission){
 function marchCap(t){ var cap=0; t.forEach(function(n,i){ cap+=n*LOAD[i]*(1+0.1*(S.tech.logistics||0)); }); return Math.floor(cap); }
 function cargoTotal(){ return RES.reduce(function(a,k){ return a+(marchDraft.cargo[k]||0); },0); }
 function marchFood(t, mission, travel){ var up=0; t.forEach(function(n,i){ up+=n*U[i].up; }); var legs=(mission==="reinforce"||mission==="found")?1:2; return Math.ceil(up*travel/3.6e6*legs); }
-function armyCap(){ return 10000*rallyLv(); } // Age 1: army size is limited to 10,000 x Rally Spot level
+function armyCap(ens){ return Math.floor(10000*rallyLv()*(ens?1.25:1)); } // Age 1: army size is limited to 10,000 x Rally Spot level
 function marchWhy(){
   var d=marchDraft, n=d.t.reduce(function(a,b){return a+b;},0);
   if (!rallyLv()) return "Build a Rally Spot first";
   if (cityMarches().length>=rallyLv()) return "Rally Spot is full ("+rallyLv()+" marches)";
   if (!n) return "Choose some troops";
-  if (n>armyCap()) return "Rally Spot "+rallyLv()+" allows "+fmt(armyCap())+" troops per march";
+  if (n>armyCap(d.ensign)) return "Army limit is "+fmt(armyCap(d.ensign))+" troops"+(d.ensign?" (with the War Ensign)":"");
   for (var i=0;i<12;i++) if (d.t[i]>S.troops[i]) return "Not enough "+U[i].name+"s";
   if (d.mission==="occupy" && ownedIds().length>=S.th) return "Valley limit reached (Town Hall "+S.th+")";
   if (d.mission==="transport"){
@@ -1593,7 +1598,7 @@ function marchWhy(){
     if (cargoTotal() > marchCap(d.t)) return "Too heavy: capacity "+fmt(marchCap(d.t));
   }
   if (d.mission==="conquer" && S.cities.length >= TITLES[S.title].cities) return "Your title allows "+TITLES[S.title].cities+" cities";
-  var fneed=marchFood(d.t,d.mission,travelMs(d.t,TILE_BY[d.tile]))+(d.mission==="transport"?(d.cargo.food||0):0)+(d.mission==="found"?10000:0);
+  var fneed=marchFood(d.t,d.mission,travelMs(d.t,TILE_BY[d.tile],d.hero))+(d.mission==="transport"?(d.cargo.food||0):0)+(d.mission==="found"?10000:0);
   if (S.res.food<fneed) return "Needs "+fmt(fneed)+" food for the trip";
   if (d.mission==="found"){
     if (S.cities.length + S.marches.filter(function(x){return x.mission==="found";}).length >= TITLES[S.title].cities) return "Your title allows "+TITLES[S.title].cities+" cities";
@@ -1603,12 +1608,13 @@ function marchWhy(){
 }
 function updateMarchInfo(){
   var el=document.getElementById("marchinfo"), b=document.getElementById("marchgo"); if (!el) return;
-  var q=TILE_BY[marchDraft.tile], tm=travelMs(marchDraft.t,q), cap=0;
+  var q=TILE_BY[marchDraft.tile], tm=travelMs(marchDraft.t,q,marchDraft.hero), cap=0;
   marchDraft.t.forEach(function(n,i){ cap+=n*LOAD[i]*(1+0.1*(S.tech.logistics||0)); });
   el.textContent = !tm ? "" : marchDraft.mission==="reinforce" ? "Travel "+fmtT(realMs(tm))+". These troops will stay there." :
     marchDraft.mission==="transport" ? "Travel "+fmtT(realMs(tm))+" each way. Carrying "+fmt(cargoTotal())+" of "+fmt(cap)+" capacity." : "Travel "+fmtT(realMs(tm))+" each way. Carries "+fmt(cap)+" loot.";
   if (tm){ var fd=marchFood(marchDraft.t,marchDraft.mission,tm); if (fd) el.textContent+=" Rations: "+fmt(fd)+" food."; }
-  el.textContent+=" Army size "+fmt(marchDraft.t.reduce(function(x,y){return x+y;},0))+" of "+fmt(armyCap())+".";
+  el.textContent+=" Army size "+fmt(marchDraft.t.reduce(function(x,y){return x+y;},0))+" of "+fmt(armyCap(marchDraft.ensign))+".";
+  if (hs(marchDraft.hero?heroById(marchDraft.hero):null,"int")) el.textContent+=" Your hero\u2019s Intelligence speeds the march "+hs(heroById(marchDraft.hero),"int")+"%.";
   var why=marchWhy(); b.disabled=!!why; b.textContent= why || (marchDraft.mission==="conquer"?"March to conquer":marchDraft.mission==="transport"?"Send resources":marchDraft.mission==="reinforce"?"Send reinforcements":marchDraft.mission==="occupy"?"March to occupy":marchDraft.mission==="found"?"March to found city (10k each)":"March to attack");
   var pv=document.getElementById("marchprev"); if (pv) pv.innerHTML=marchDraft.preview;
 }
@@ -1630,6 +1636,7 @@ function marchSheet(){
   if (d.mission!=="transport") h+='<div><label class="sub" for="marchhero">'+(d.mission==="reinforce"?"Hero to move there (needs room in its Feasting Hall)":"Leading hero")+'</label><select id="marchhero"><option value="0">No hero</option>'+fh.map(function(x){ return '<option value="'+x.id+'"'+(x.id===d.hero?' selected':'')+'>'+esc(x.name)+', Lv '+x.level+', Atk '+hs(x,"atk")+'</option>'; }).join("")+'</select>'+
     (S.mayor?'<p class="hint" style="margin-top:4px">Your mayor stays home to run the city.</p>':'')+'</div>';
   if (d.mission==="transport") h=h.replace('<select id="marchhero">','<select id="marchhero" hidden>');
+  if ((S.items.ensign||0)>0 || d.ensign) h+='<label class="chk"><input type="checkbox" id="mensign"'+(d.ensign?' checked':'')+'> Raise a War Ensign: +25% army size for this march ('+(S.items.ensign||0)+' left)</label>';
   h+='<p class="sub" id="marchinfo"></p><div id="marchprev"></div>';
   var friendlyM = d.mission==="transport" || d.mission==="reinforce";
   h+='<div class="act">'+(friendlyM?'<span></span>':'<button class="btn ghost" data-act="march-preview">Preview battle</button>')+'<button class="btn" data-act="march-go" id="marchgo">March</button></div><button class="closebtn" data-act="close">Cancel</button>';
@@ -1646,24 +1653,24 @@ function previewMarch(){
 }
 function cityMarches(){ var me=C().id; return S.marches.filter(function(x){ return x.city===me; }); }
 function launchMarch(tileId, mission, t, heroId, opt){
-  opt=opt||{}; var q=TILE_BY[tileId], tm=travelMs(t,q), dep=opt.dep!=null?opt.dep:S.gt;
-  S.res.food-=marchFood(t,mission,tm);
+  opt=opt||{}; var q=TILE_BY[tileId], tm=travelMs(t,q,heroId), dep=opt.dep!=null?opt.dep:S.gt, food=marchFood(t,mission,tm);
+  S.res.food-=food;
   for (var i=0;i<12;i++) S.troops[i]-=t[i];
   var hero=heroId?heroById(heroId):null; if (hero) hero.away=true;
-  var m={id:S.nextMarchId++, city:C().id, tile:q.id, mission:mission, cargo:opt.cargo||{}, t:t.slice(), hero:hero?hero.id:0, dep:dep, arr:dep+tm, travel:tm, phase:dep>S.gt?"wait":"out", loot:{}};
+  var m={id:S.nextMarchId++, city:C().id, food:food, tile:q.id, mission:mission, cargo:opt.cargo||{}, t:t.slice(), hero:hero?hero.id:0, dep:dep, arr:dep+tm, travel:tm, phase:dep>S.gt?"wait":"out", loot:{}};
   if (opt.preset!=null) m.preset=opt.preset;
   if (opt.label!=null) m.label=opt.label;
   S.marches.push(m); return m;
 }
 function sendMarch(){
   if (marchWhy()) return;
-  var d=marchDraft, q=TILE_BY[d.tile], tm=travelMs(d.t,q);
-  S.res.food-=marchFood(d.t,d.mission,tm);
+  var d=marchDraft, q=TILE_BY[d.tile], tm=travelMs(d.t,q,d.hero), food=marchFood(d.t,d.mission,tm);
+  S.res.food-=food; if (d.ensign && S.items.ensign>0) S.items.ensign--;
   for (var i=0;i<12;i++) S.troops[i]-=d.t[i];
   var hero=d.hero?heroById(d.hero):null; if (hero) hero.away=true;
   if (d.mission==="found") RES.forEach(function(k){ S.res[k]-=10000; });
   var cargo={}; if (d.mission==="transport") RES.forEach(function(k){ cargo[k]=d.cargo[k]||0; S.res[k]-=cargo[k]; });
-  S.marches.push({id:S.nextMarchId++, city:C().id, tile:q.id, mission:d.mission, cargo:cargo, t:d.t.slice(), hero:hero?hero.id:0, dep:S.gt, arr:S.gt+tm, travel:tm, phase:"out", loot:{}});
+  S.marches.push({id:S.nextMarchId++, city:C().id, food:food, ensign:!!d.ensign, tile:q.id, mission:d.mission, cargo:cargo, t:d.t.slice(), hero:hero?hero.id:0, dep:S.gt, arr:S.gt+tm, travel:tm, phase:"out", loot:{}});
   toast((d.mission==="transport"?"Caravan heading to ":d.mission==="reinforce"?"Reinforcements heading to ":"Army marching on ")+tileName(q)+", arrives in "+fmtT(realMs(tm)));
   closeSheet(); refresh();
 }
@@ -1758,7 +1765,8 @@ var WHEEL = [
   {k:"medal",label:"Medal",w:1.5,icon:"medalseg"},
   {k:"stones",label:"Gems",w:6,icon:"anvil"},
   {k:"gear",label:"Gear",w:1,icon:"helm"},
-  {k:"teleport",label:"Teleport",w:1.5,icon:"portal"}
+  {k:"teleport",label:"Teleport",w:1.5,icon:"portal"},
+  {k:"ensign",label:"Ensign",w:0.15,icon:"rally"}
 ];
 var AMULET_RATE = 0.25, AMULET_PER_HOUR = 20*AMULET_RATE, PITY = 100, LEGEND_IDX = 11;
 var WSUM = WHEEL.reduce(function(a,s){ return a+s.w; },0);
@@ -1768,6 +1776,8 @@ var ITEMS = {
   s480:{name:"8-hour speed-up",min:480,icon:"hourglass"},
   tome:{name:"Tome of Wisdom",xp:2000,icon:"book"},
   teleport:{name:"City Teleport",icon:"portal"},
+  ensign:{name:"War Ensign",icon:"rally"},
+  marchsp:{name:"March Speed-up",icon:"hourglass"},
   gemD:{name:"Delicate Gems",icon:"anvil"},
   gemF:{name:"Flawless Gems",icon:"anvil"}
 };
@@ -2046,12 +2056,18 @@ function marchLine(m){
   var verb = m.phase==="wait" ? "Wave for " : m.phase==="back" ? "Returning from " : ({occupy:"Occupying ",found:"Founding at ",transport:"Carrying to ",reinforce:"Reinforcing ",attack:"Attacking ",conquer:"Conquering "}[m.mission]);
   return {txt:pre+verb+nm, cls:m.phase==="back"?"back":(m.mission==="transport"||m.mission==="reinforce")?"friend":"out"};
 }
+function marchBtns(m){
+  var b='';
+  if (m.phase!=="back") b+='<button class="link" data-act="march-recall" data-m="'+m.id+'">'+(m.phase==="wait"?"Cancel":"Recall")+'</button>';
+  if (m.phase!=="wait" && (S.items.marchsp||0)>0) b+='<button class="link strong" data-act="march-hasten" data-m="'+m.id+'">Speed up ('+S.items.marchsp+')</button>';
+  return b ? '<div class="mbtns">'+b+'</div>' : '';
+}
 function renderMarchStrip(){
   var el=document.getElementById("marchstrip"); if (!el) return;
   var me=C().id, ms=S.marches.filter(function(m){ return m.city===me; }).sort(function(a,b){ return marchT(a)-marchT(b); });
   if (!ms.length){ if (el.innerHTML) el.innerHTML=""; return; }
   var h='<details class="mstrip"'+(stripOpen?' open':'')+'><summary><b>'+ms.length+' march'+(ms.length>1?'es':'')+'</b> <span class="dur">next event in <span id="ms-next"></span></span></summary><div class="mlist">'+
-    ms.map(function(m){ var l=marchLine(m); return '<div class="mrowl '+l.cls+'"><span>'+esc(l.txt)+'</span><span class="qtime" id="ms-'+m.id+'"></span></div>'; }).join("")+'</div></details>';
+    ms.map(function(m){ var l=marchLine(m); return '<div class="mrowl '+l.cls+'"><span>'+esc(l.txt)+'</span><span class="qtime" id="ms-'+m.id+'"></span></div>'+marchBtns(m); }).join("")+'</div></details>';
   if (el.dataset.sig!==h){ el.innerHTML=h; el.dataset.sig=h; var d=el.querySelector("details"); d.addEventListener("toggle",function(){ stripOpen=d.open; }); }
   var nx=document.getElementById("ms-next"); if (nx) nx.textContent=fmtT(realMs(marchT(ms[0])-S.gt));
   ms.forEach(function(m){ var e=document.getElementById("ms-"+m.id); if (e) e.textContent=fmtT(realMs(marchT(m)-S.gt)); });
@@ -2347,7 +2363,7 @@ function fillRepList(){
       (fr?reportDetail(fr):'<p class="hint">Only the summary of this older battle was kept.</p>')+'</details>';
   }).join("");
   if (pages>1) h+='<div class="act" style="margin-top:10px"><button class="btn ghost small" data-act="rep-page" data-d="-1"'+(repPage?'':' disabled')+'>\u2039 Newer</button><span class="dur">Page '+(repPage+1)+' of '+pages+'</span><button class="btn ghost small" data-act="rep-page" data-d="1"'+(repPage<pages-1?'':' disabled')+'>Older \u203a</button></div>';
-  if (el.innerHTML!==h) el.innerHTML=h;
+  if (el._sig!==h){ el.innerHTML=h; el._sig=h; }
 }
 
 /* building pages */
@@ -2401,7 +2417,7 @@ function viewTitlesBody(t,nt,nr){
     '<div class="act" style="margin-top:6px"><div><div class="bigstat">'+fmt(S.prestige)+'</div><span class="dur">prestige</span></div><div style="text-align:right"><div class="bigstat">'+S.cities.length+' / '+t.cities+'</div><span class="dur">cities allowed</span></div></div>'+
     '<p class="hint" style="margin-top:8px">Prestige comes from every building level, research level and trained troop in all your cities. Found new cities on Flats from the Map.</p></div>';
   h+='<div class="section"><h3>Medal case</h3><div class="medals">'+MEDALS.map(function(m,i){ return '<div class="medal">'+medalIcon(i)+'<b>'+(S.medals[m[0]]||0)+'</b><span>'+m[1]+'</span></div>'; }).join("")+'</div>'+
-    '<p class="hint" style="margin-top:8px">Right now medals come from the wheel\u2019s Medal segment, mostly the low ones. Once the map arrives, attacking NPC cities and valleys drops them, with Justice and Nation coming from level 10 targets.</p></div>';
+    '<p class="hint" style="margin-top:8px">Medals drop from victories over NPC cities, AI lords, valleys and historic cities, and occasionally from the wheel. Higher level targets drop better medals: Justice and Nation only come from level 10 and above.</p></div>';
   h+='<div class="section"><h3>'+(nr?'Next rank: '+nr.name:'Highest rank reached')+'</h3>'+(nr?questCard(nr,false,"rankup","Promote to "+nr.name):'<p class="hint">You are a General. Only titles remain.</p>')+'</div>';
   h+='<div class="section"><h3>'+(nt?'Next title: '+nt.name:'Highest title reached')+'</h3>'+(nt?'<p class="hint">Allows '+nt.cities+' cities.</p>'+questCard(nt,true,"titleup","Run for "+nt.name):'<p class="hint">You are Prinzessin. Ten cities are yours to rule.</p>')+'</div>';
   h+='<details class="section"><summary>All titles</summary><div class="ladder">'+TITLES.map(function(x,i){ return '<span class="'+(i===S.title?'cur':'')+'">'+x.name+'</span><span class="dur">'+(i?fmt(x.prestige)+' prestige, '+fmt(x.gold)+' gold, '+MEDALS.filter(function(m){return x.m[m[0]];}).map(function(m){return x.m[m[0]]+' '+m[1];}).join(" + "):'Starting title')+'</span><span>'+x.cities+' '+(x.cities===1?'city':'cities')+'</span>'; }).join("")+'</div></details>';
@@ -3089,6 +3105,25 @@ document.addEventListener("click",function(e){
     sim.def={preset:"custom", t:S.troops.slice(), f:S.forts.slice(), wall:S.wall||0, r:simResearch(), hatk:hs(dm,"atk"), hint:hs(dm,"int"), life:setLife(dm), eng:S.tech.engineering||0};
     simOut=null; closeSheet(); tab="war"; lastView=""; renderView(true); window.scrollTo({top:0}); return;
   }
+  if (act==="march-recall" || act==="march-hasten"){
+    var mm=S.marches.filter(function(x){ return x.id===+a.dataset.m; })[0]; if (!mm) return;
+    withCity(cityIndex(mm.city), function(){
+      if (act==="march-hasten"){
+        if (!(S.items.marchsp>0) || mm.phase==="wait") return;
+        S.items.marchsp--; if (mm.phase==="out") mm.arr=S.gt+(mm.arr-S.gt)/2; else mm.ret=S.gt+(mm.ret-S.gt)/2;
+        toast("March hastened: half the remaining time"); return;
+      }
+      var refund={}; RES.forEach(function(k){ refund[k]=(mm.cargo&&mm.cargo[k])||0; }); if (mm.mission==="found") RES.forEach(function(k){ refund[k]+=10000; });
+      if (mm.phase==="wait"){
+        for (var i=0;i<12;i++) S.troops[i]+=mm.t[i]; RES.forEach(function(k){ S.res[k]+=refund[k]; }); S.res.food+=mm.food||0;
+        var wh=mm.hero?heroById(mm.hero):null; if (wh) wh.away=false; if (mm.ensign) S.items.ensign=(S.items.ensign||0)+1;
+        S.marches=S.marches.filter(function(x){ return x!==mm; }); toast("Wave cancelled; troops and rations returned");
+      } else if (mm.phase==="out"){
+        mm.phase="back"; mm.ret=S.gt+Math.max(1,S.gt-mm.dep); mm.loot=refund; toast("Army turned back, home in "+fmtT(realMs(mm.ret-S.gt)));
+      }
+    });
+    save(); refresh(); return;
+  }
   if (act==="goto-tile"){ selectTile(a.dataset.tile,true); window.scrollTo({top:0,behavior:"smooth"}); return; }
   if (act==="rep-filter"){ repFilter=a.dataset.f; repPage=0; lastView=""; renderView(true); return; }
   if (act==="rep-page"){ repPage=Math.max(0,repPage+(+a.dataset.d)); fillRepList(); window.scrollTo({top:0}); return; }
@@ -3107,7 +3142,7 @@ document.addEventListener("click",function(e){
     pl.list.forEach(function(w){ launchMarch(waveDraft.tile, waveDraft.mission, w.t, w.hero, {dep:w.dep, label:w.pi}); var lm=S.marches[S.marches.length-1]; lm.arr=w.arr; });
     toast(pl.list.length+" wave"+(pl.list.length>1?"s":"")+" set to land on "+tileName(wq)+" starting in "+fmtT(realMs(pl.first-S.gt))); closeSheet(); refresh(); return; }
   if (act==="march-open"){ openMarch(a.dataset.tile, a.dataset.mission); return; }
-  if (act==="march-max"){ var mu=+a.dataset.unit, room=armyCap()-marchDraft.t.reduce(function(x,y,k){ return x+(k===mu?0:y); },0); marchDraft.t[mu]=Math.max(0,Math.min(S.troops[mu],room)); var mi=sheetBody.querySelector('[data-march="'+mu+'"]'); if (mi) mi.value=marchDraft.t[mu]; marchDraft.preview=""; updateMarchInfo(); return; }
+  if (act==="march-max"){ var mu=+a.dataset.unit, room=armyCap(marchDraft.ensign)-marchDraft.t.reduce(function(x,y,k){ return x+(k===mu?0:y); },0); marchDraft.t[mu]=Math.max(0,Math.min(S.troops[mu],room)); var mi=sheetBody.querySelector('[data-march="'+mu+'"]'); if (mi) mi.value=marchDraft.t[mu]; marchDraft.preview=""; updateMarchInfo(); return; }
   if (act==="march-preview"){ previewMarch(); return; }
   if (act==="cargo-fill"){ var rk=a.dataset.res, room=marchCap(marchDraft.t)-cargoTotal()+(marchDraft.cargo[rk]||0);
     marchDraft.cargo[rk]=Math.max(0,Math.min(Math.floor(S.res[rk]), room)); var ci=sheetBody.querySelector('[data-cargo="'+rk+'"]'); if (ci) ci.value=marchDraft.cargo[rk]; updateMarchInfo(); return; }
@@ -3224,6 +3259,7 @@ document.addEventListener("change",function(e){
   if (e.target.id==="phero"){ S.presets[sheetFor.p].hero=+e.target.value; save(); }
   if (e.target.id==="pstop"){ S.presets[sheetFor.p].stopOnLoss=e.target.checked; save(); }
   if (e.target.id==="wmis"){ waveDraft.mission=e.target.value; updateWaveInfo(); }
+  if (e.target.id==="mensign"){ marchDraft.ensign=e.target.checked && (S.items.ensign||0)>0; updateMarchInfo(); }
   if (e.target.id==="marchhero"){ marchDraft.hero=+e.target.value; marchDraft.preview=""; updateMarchInfo(); }
   if (e.target.id==="npcsel"){ setPreset(e.target.value); lastView=""; renderView(true); }
 });

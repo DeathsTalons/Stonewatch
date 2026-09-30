@@ -1,12 +1,12 @@
-STONEWATCH: put it on your Android phone
+IBORY: put it on your Android phone
 
 ONE-TIME SETUP (about 5 minutes, free)
 1. Make a free account at github.com (skip if you have one).
-2. Click "+" (top right) > "New repository". Name it "stonewatch", set it Public, click Create.
+2. Click "+" (top right) > "New repository". Name it "ibory" (or keep your existing "stonewatch" repo and just replace the files), set it Public, click Create.
 3. On the new repo page click "uploading an existing file" and drag in ALL the files from
    this folder: index.html, manifest.webmanifest, sw.js and the three icon PNGs. Commit.
 4. Repo "Settings" > "Pages". Under "Branch" pick "main" and "/ (root)", click Save.
-   After a minute or two it shows your link: https://YOURNAME.github.io/stonewatch/
+   After a minute or two it shows your link: https://YOURNAME.github.io/ibory/
 5. On your phone, open that link in Chrome. Tap the three-dot menu > "Install app"
    (or "Add to Home screen"). It gets its own castle icon, opens full screen, and works offline.
 
