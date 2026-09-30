@@ -61,7 +61,7 @@ h1{font:700 1.5rem/1.1 var(--display);letter-spacing:.04em;margin:0}
 .popline{display:flex;justify-content:space-between;gap:10px;font-size:.92rem;color:var(--muted);padding:8px 4px 0;flex-wrap:wrap}
 .popline b{color:var(--ink);font-weight:500}
 
-.queue{margin-top:12px;display:grid;gap:8px}
+.queue{margin:0 0 12px;display:grid;gap:8px}
 .qrow{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 12px;align-items:center}
 .qrow.idle{color:var(--muted);font-size:.93rem;display:block}
 .qlabel{font-weight:500}
@@ -319,7 +319,8 @@ table.gt td.ok{color:var(--grass);font-weight:700}
 .bigstat{font:700 1.6rem var(--display);color:var(--brass)}
 .maptools{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
 .maptools .btn{min-width:40px}
-.mapview{margin-top:8px;border-radius:8px;border:1px solid var(--line);overflow:hidden;height:min(58vh,520px)}
+.mapview{touch-action:none;overscroll-behavior:contain;margin-top:8px;border-radius:8px;border:1px solid var(--line);overflow:hidden;height:min(58vh,520px);contain:strict}
+@supports (height:1svh){ .mapview{height:min(58svh,520px)} }
 .mapview canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 .mapbottom{display:grid;grid-template-columns:auto 1fr;gap:12px;margin-top:10px;align-items:start}
 #minic{width:132px;height:132px;image-rendering:pixelated;border-radius:6px;border:1px solid var(--line);cursor:pointer}
@@ -386,10 +387,6 @@ textarea{font:.8rem/1.3 ui-monospace,Menlo,monospace;width:100%;margin-top:8px;p
 
   <div id="threats"></div>
   <div id="marchstrip"></div>
-  <div class="queue">
-    <div id="q-build"></div>
-    <div id="q-research"></div>
-  </div>
 
   <div class="tabbar"><button class="tabarrow left" data-act="tabscroll" data-dir="-1" aria-label="Scroll tabs left" hidden>‹</button>
   <nav class="tabs" role="tablist" id="tabs">
@@ -403,6 +400,10 @@ textarea{font:.8rem/1.3 ui-monospace,Menlo,monospace;width:100%;margin-top:8px;p
     <button role="tab" data-act="tab" data-tab="wheel">Wheel</button>
   </nav><button class="tabarrow right" data-act="tabscroll" data-dir="1" aria-label="Scroll tabs right" hidden>›</button></div>
 
+  <div class="queue">
+    <div id="q-build"></div>
+    <div id="q-research"></div>
+  </div>
   <main id="view"></main>
 </div>
 
@@ -478,7 +479,7 @@ var DEF = {
   forge:{name:"Forge",cost:{food:150,lumber:300,stone:300,iron:350},t:75,unique:true,
     desc:"Metalworking for arms and armor. Caps Iron Working and Metal Casting."},
   rally:{name:"Rally Spot",cost:{food:100,lumber:300,stone:200,iron:100},t:60,unique:true,
-    desc:"Where armies muster. Caps Logistics, Compass and Privateering. Marches arrive with the map."},
+    desc:"Where armies muster. Each level allows one more march at a time and 10,000 more troops per march."},
   warehouse:{name:"Warehouse",cost:{food:100,lumber:250,stone:250,iron:50},t:45,
     desc:"Protects resources from plunder once the map arrives. Caps Stockpile."},
   farm:{name:"Farm",cost:{food:25,lumber:60,stone:40,iron:20},t:30,res:"food",desc:"Grows food."},
@@ -1130,7 +1131,7 @@ function handleMarch(m){
 /* ---------- presets, auto-farm, timed waves ---------- */
 function presetHero(pr){ var h=pr.hero?heroById(pr.hero):null; return h && C().heroes.indexOf(h)>=0 ? h : null; }
 function presetTotal(pr){ return pr.t.reduce(function(a,b){return a+b;},0); }
-function presetReady(pr){ if (!presetTotal(pr)) return false; for (var i=0;i<12;i++) if (pr.t[i]>S.troops[i]) return false; return true; }
+function presetReady(pr){ if (!presetTotal(pr) || presetTotal(pr)>armyCap()) return false; for (var i=0;i<12;i++) if (pr.t[i]>S.troops[i]) return false; return true; }
 function farmTarget(id){ var q=TILE_BY[id]; return q && (q.k==="npc"||q.k==="ai"||q.k==="hc"||(VTYPES[q.k] && !S.map.owned[q.id])); }
 function processAuto(){
   var rl=rallyLv(); if (!rl) return;
@@ -1138,6 +1139,7 @@ function processAuto(){
     if (!pr.auto || !pr.farm.length) return;
     if (S.marches.some(function(m){ return m.city===C().id && m.preset===pi; })) return;
     if (cityMarches().length>=rl || !presetReady(pr)) return;
+    var nid=pr.farm[pr.idx % pr.farm.length], nq=nid&&TILE_BY[nid]; if (nq && S.res.food < marchFood(pr.t,"attack",travelMs(pr.t,nq))) return; // wait for rations
     var h=pr.hero?heroById(pr.hero):null;
     if (h && C().heroes.indexOf(h)>=0 && (h.away || h.id===S.mayor)) return; // wait for the hero
     var tries=0; while (tries<pr.farm.length && !farmTarget(pr.farm[pr.idx % pr.farm.length])){ pr.farm.splice(pr.idx % pr.farm.length,1); tries++; if (!pr.farm.length) return; }
@@ -1153,7 +1155,7 @@ function presetsSection(){
     h+='<div class="unit"><h4>'+esc(pr.name)+'</h4><span class="own" style="font-size:.85rem">'+(pr.auto?'<span class="badge">Auto-farming</span>':'')+'</span>'+
       '<div class="us"><span>'+presetSummary(pr)+'</span><span>Hero <b>'+(hh?esc(hh.name):"none")+'</b></span><span>Farm list <b>'+pr.farm.length+'</b></span>'+(running?'<span><b>Out on a march</b></span>':'')+'</div>'+
       '<div class="trainrow"><button class="btn ghost small" data-act="preset-edit" data-p="'+pi+'">Edit</button>'+(pr.farm.length&&presetTotal(pr)?'<button class="btn small'+(pr.auto?' ghost':'')+'" data-act="preset-auto" data-p="'+pi+'">'+(pr.auto?'Stop auto-farm':'Start auto-farm')+'</button>':'')+
-      (pr.auto && !presetReady(pr) && !running?'<span class="why">Waiting for troops</span>':'')+'</div></div>';
+      (presetTotal(pr)>armyCap()?'<span class="why">Over the '+fmt(armyCap())+'-troop march limit</span>':pr.auto && !presetReady(pr) && !running?'<span class="why">Waiting for troops</span>':'')+'</div></div>';
   });
   return h+'</div></div>';
 }
@@ -1191,8 +1193,10 @@ function wavePlan(){
   if (!rallyLv()) why="Build a Rally Spot first";
   else if (!list.length) why="Choose at least one wave";
   else if (list.some(function(w){ return !w.travel; })) why="A chosen preset has no troops";
+  else if (list.some(function(w){ return w.t.reduce(function(x,y){return x+y;},0)>armyCap(); })) why="A preset is over the "+fmt(armyCap())+"-troop march limit";
   else if (cityMarches().length+list.length>rallyLv()) why="Rally Spot allows "+rallyLv()+" marches ("+cityMarches().length+" out)";
   else if (d.mission==="conquer" && S.cities.length>=TITLES[S.title].cities) why="Your title allows "+TITLES[S.title].cities+" cities";
+  else if (S.res.food < list.reduce(function(a,w){ return a+marchFood(w.t,d.mission,w.travel); },0)) why="Needs "+fmt(list.reduce(function(a,w){ return a+marchFood(w.t,d.mission,w.travel); },0))+" food for the trip";
   else for (var i=0;i<12;i++) if (need[i]>S.troops[i]){ why="Not enough "+U[i].name+"s ("+fmt(need[i])+" needed)"; break; }
   var maxT=list.reduce(function(a,w){ return Math.max(a,w.travel); },0), gap=Math.max(0,+d.gap||0)*1000*S.speed, first=S.gt+maxT+1000*S.speed;
   list.forEach(function(w,k){ w.arr=first+k*gap; w.dep=w.arr-w.travel; });
@@ -1336,28 +1340,41 @@ function viewMap(){
     '<div id="tileinfo"></div><div id="marchbox"></div><div class="section"><div class="act"><span class="dur">Every battle you fight is kept in Reports.</span><button class="btn ghost small" data-act="tab" data-tab="reports">Battle reports</button></div></div>';
 }
 function centerOn(x,y){ var c=document.getElementById("mapc"); if (!c) { mv.x=x; mv.y=y; return; } mv.x=x+0.5-c.clientWidth/mv.z/2; mv.y=y+0.5-c.clientHeight/mv.z/2; clampView(); }
-function clampView(){ var c=document.getElementById("mapc"); if (!c) return; var vw=c.clientWidth/mv.z, vh=c.clientHeight/mv.z; mv.x=Math.max(-2,Math.min(MAPW-vw+2,mv.x)); mv.y=Math.max(-2,Math.min(MAPH-vh+2,mv.y)); }
+function clampView(){ var c=document.getElementById("mapc"); if (!c) return;
+  if (!isFinite(mv.z) || mv.z<=0) mv.z=30;
+  if (!isFinite(mv.x) || !isFinite(mv.y)){ var hm=S.map.home; mv.x=hm[0]; mv.y=hm[1]; }
+  var vw=c.clientWidth/mv.z, vh=c.clientHeight/mv.z; mv.x=Math.max(-2,Math.min(MAPW-vw+2,mv.x)); mv.y=Math.max(-2,Math.min(MAPH-vh+2,mv.y)); }
 function tileColor(q){ return q.k==="home" ? null : q.k==="ai" ? "#2c6763" : q.k==="npc" ? "#4a4541" : q.k==="hc" ? HC_COL[q.L] : VTYPES[q.k].col; }
-function buildMini(){
-  var mc=document.createElement("canvas"); mc.width=MAPW; mc.height=MAPH; var g=mc.getContext("2d"); if (!g || !g.createImageData) return null;
-  var img=g.createImageData(MAPW,MAPH), cache={};
-  for (var y=0;y<MAPH;y++) for (var x=0;x<MAPW;x++){
-    var q=tileAt(x,y), col=S.map.owned[q.id]?"#c9a24a":q.k==="home"?"#f0c75a":tileColor(q), rgb=cache[col];
-    if (!rgb){ rgb=cache[col]=[parseInt(col.substr(1,2),16),parseInt(col.substr(3,2),16),parseInt(col.substr(5,2),16)]; }
-    var i=(y*MAPW+x)*4; img.data[i]=rgb[0]; img.data[i+1]=rgb[1]; img.data[i+2]=rgb[2]; img.data[i+3]=255;
+var miniJob=null;
+function startMiniJob(){ // build the overview a few rows per frame so the map never freezes
+  var mc=document.createElement("canvas"); mc.width=MAPW; mc.height=MAPH; var g=mc.getContext("2d"); if (!g || !g.createImageData){ miniJob=null; return; }
+  var img=g.createImageData(MAPW,MAPH), cache={}, job={y:0};
+  miniJob=job;
+  function step(){
+    if (miniJob!==job) return;
+    var end=Math.min(MAPH, job.y+24);
+    for (var y=job.y;y<end;y++) for (var x=0;x<MAPW;x++){
+      var q=tileAt(x,y), col=S.map.owned[q.id]?"#c9a24a":q.k==="home"?"#f0c75a":(tileColor(q)||"#777777"), rgb=cache[col];
+      if (!rgb){ rgb=cache[col]=[parseInt(col.substr(1,2),16),parseInt(col.substr(3,2),16),parseInt(col.substr(5,2),16)]; }
+      var i=(y*MAPW+x)*4; img.data[i]=rgb[0]; img.data[i+1]=rgb[1]; img.data[i+2]=rgb[2]; img.data[i+3]=255;
+    }
+    job.y=end;
+    if (end<MAPH){ (window.requestAnimationFrame||setTimeout)(step); return; }
+    g.putImageData(img,0,0); miniImg=mc; miniJob=null; drawMini();
   }
-  g.putImageData(img,0,0); return mc;
+  step();
 }
 function drawMini(){
   var c=document.getElementById("minic"); if (!c) return; var g=c.getContext("2d"); if (!g) return;
-  if (miniDirty || !miniImg){ miniImg=buildMini(); miniDirty=false; }
-  if (miniImg && g.drawImage) g.drawImage(miniImg,0,0);
+  if ((miniDirty || !miniImg) && !miniJob){ miniDirty=false; startMiniJob(); }
+  if (miniImg && g.drawImage) g.drawImage(miniImg,0,0); else { g.fillStyle="#555"; g.fillRect(0,0,MAPW,MAPH); }
   var mc=document.getElementById("mapc"); if (!mc) return;
   g.strokeStyle="#fff"; g.lineWidth=1.5; g.strokeRect(mv.x, mv.y, mc.clientWidth/mv.z, mc.clientHeight/mv.z);
   S.cities.forEach(function(ct){ g.fillStyle=ct.id===C().id?"#fff":"#ffe08a"; g.fillRect(ct.x-1,ct.y-1,3,3); });
 }
 function drawMap(){
   var c=document.getElementById("mapc"); if (!c) return;
+  if (!isFinite(mv.x) || !isFinite(mv.y) || !isFinite(mv.z)) clampView();
   var dpr=window.devicePixelRatio||1, W=c.clientWidth||360, H=c.clientHeight||360;
   if (c.width!==Math.round(W*dpr) || c.height!==Math.round(H*dpr)){ c.width=Math.round(W*dpr); c.height=Math.round(H*dpr); }
   var g=c.getContext("2d"); if (!g) return;
@@ -1367,7 +1384,7 @@ function drawMap(){
   var z=mv.z, x0=Math.max(0,Math.floor(mv.x)), y0=Math.max(0,Math.floor(mv.y)), x1=Math.min(MAPW-1,Math.ceil(mv.x+W/z)), y1=Math.min(MAPH-1,Math.ceil(mv.y+H/z));
   var detail=z>=18, fs=Math.max(8,Math.min(12,Math.round(z*0.38)));
   g.font="700 "+fs+"px Cinzel, Georgia, serif"; g.textAlign="center"; g.textBaseline="middle";
-  for (var ty=y0; ty<=y1; ty++) for (var tx=x0; tx<=x1; tx++){
+  for (var ty=y0; ty<=y1; ty++) for (var tx=x0; tx<=x1; tx++){ try {
     var q=tileAt(tx,ty), x=(tx-mv.x)*z, y=(ty-mv.y)*z;
     if (q.k==="home"){ g.fillStyle=q.city===C().id?brass:"#a88a45"; g.fillRect(x,y,z,z);
       if (detail){ g.fillStyle="#2a2210"; var u=z/30; g.fillRect(x+7*u,y+11*u,16*u,12*u); g.fillRect(x+7*u,y+7*u,4*u,4*u); g.fillRect(x+13*u,y+7*u,4*u,4*u); g.fillRect(x+19*u,y+7*u,4*u,4*u); } }
@@ -1381,14 +1398,14 @@ function drawMap(){
     else { g.fillStyle=VTYPES[q.k].col; g.fillRect(x,y,z,z);
       if (detail){ g.fillStyle=(q.k==="desert"||q.k==="flat")?"rgba(0,0,0,.55)":"rgba(255,255,255,.8)"; g.fillText(q.L,x+z/2,y+z/2+1); } }
     if (S.map.owned[q.id]){ g.strokeStyle=brass; g.lineWidth=Math.max(1.5,z/10); g.strokeRect(x+1.5,y+1.5,z-3,z-3); }
-  }
+  } catch(err){ if (!drawMap.warned){ drawMap.warned=true; if (window.console) console.warn("tile draw", tx, ty, err); } } }
   if (z>=12){ g.strokeStyle="rgba(0,0,0,.12)"; g.lineWidth=1; g.beginPath();
     for (var gx=x0; gx<=x1+1; gx++){ var px=Math.round((gx-mv.x)*z)+.5; g.moveTo(px,0); g.lineTo(px,H); }
     for (var gy=y0; gy<=y1+1; gy++){ var py=Math.round((gy-mv.y)*z)+.5; g.moveTo(0,py); g.lineTo(W,py); } g.stroke(); }
   S.marches.forEach(function(m){ var q=TILE_BY[m.tile], oc=S.cities[cityIndex(m.city)]; if (!q||!oc) return;
     g.strokeStyle=(m.mission==="transport"||m.mission==="reinforce")?"#5fa36a":m.phase==="out"?"#e05a4f":brass; g.lineWidth=2; if (g.setLineDash) g.setLineDash([5,4]); g.beginPath();
     g.moveTo((oc.x+.5-mv.x)*z,(oc.y+.5-mv.y)*z); g.lineTo((q.x+.5-mv.x)*z,(q.y+.5-mv.y)*z); g.stroke(); if (g.setLineDash) g.setLineDash([]); });
-  if (selTile){ var sq=TILE_BY[selTile]; g.strokeStyle=ink; g.lineWidth=2.5; g.strokeRect((sq.x-mv.x)*z+1,(sq.y-mv.y)*z+1,z-2,z-2); }
+  if (selTile && TILE_BY[selTile]){ var sq=TILE_BY[selTile]; g.strokeStyle=ink; g.lineWidth=2.5; g.strokeRect((sq.x-mv.x)*z+1,(sq.y-mv.y)*z+1,z-2,z-2); }
   var cc=document.getElementById("mapcoord"); if (cc) cc.textContent="View ("+Math.round(mv.x+W/z/2)+", "+Math.round(mv.y+H/z/2)+")";
   drawMini();
 }
@@ -1397,28 +1414,40 @@ function selectTile(id, center){
 }
 function setupMapInput(){
   var c=document.getElementById("mapc"); if (!c || c._wired) return; c._wired=true;
+  c.addEventListener("contextlost",function(e){ e.preventDefault(); });
+  c.addEventListener("contextrestored",function(){ miniDirty=true; requestDraw(); });
+  if (window.ResizeObserver){ var ro=new ResizeObserver(function(){ requestDraw(); }); ro.observe(c.parentNode); }
   var pts={};
-  c.addEventListener("pointerdown",function(e){ c.setPointerCapture && c.setPointerCapture(e.pointerId); pts[e.pointerId]={x:e.clientX,y:e.clientY};
-    var ids=Object.keys(pts); if (ids.length===1) drag={x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false}; else if (ids.length===2){ var a=pts[ids[0]], b=pts[ids[1]]; drag={pinch:Math.hypot(a.x-b.x,a.y-b.y), z:mv.z, moved:true}; } });
+  function panFrom(p){ drag={x:p.x,y:p.y,sx:p.x,sy:p.y,moved:true}; }
+  function pinchStart(){ var ids=Object.keys(pts), a=pts[ids[0]], b=pts[ids[1]], rc=c.getBoundingClientRect();
+    drag={pinch:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)), z:mv.z, mx:(a.x+b.x)/2-rc.left, my:(a.y+b.y)/2-rc.top, moved:true}; }
+  c.addEventListener("pointerdown",function(e){ try { c.setPointerCapture(e.pointerId); } catch(err){} pts[e.pointerId]={x:e.clientX,y:e.clientY};
+    var ids=Object.keys(pts); if (ids.length===1) drag={x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false}; else if (ids.length===2) pinchStart(); });
   c.addEventListener("pointermove",function(e){ if (!pts[e.pointerId] || !drag) return; pts[e.pointerId]={x:e.clientX,y:e.clientY};
     var ids=Object.keys(pts);
-    if (drag.pinch && ids.length===2){ var a=pts[ids[0]], b=pts[ids[1]], d=Math.hypot(a.x-b.x,a.y-b.y); zoomTo(drag.z*d/drag.pinch); return; }
+    if (ids.length>=2){ if (!drag.pinch) pinchStart(); var a=pts[ids[0]], b=pts[ids[1]], d=Math.hypot(a.x-b.x,a.y-b.y); zoomAt(drag.z*d/drag.pinch, drag.mx, drag.my); return; }
+    if (drag.pinch || drag.x==null) { panFrom(pts[ids[0]]); return; }
     var dx=e.clientX-drag.x, dy=e.clientY-drag.y; if (Math.abs(e.clientX-drag.sx)+Math.abs(e.clientY-drag.sy)>6) drag.moved=true;
     drag.x=e.clientX; drag.y=e.clientY; mv.x-=dx/mv.z; mv.y-=dy/mv.z; clampView(); requestDraw(); });
-  function up(e){ var wasTap = drag && !drag.moved && !drag.pinch && Object.keys(pts).length===1; delete pts[e.pointerId];
+  function up(e){ if (!pts[e.pointerId]) return; var wasTap = drag && !drag.moved && !drag.pinch && Object.keys(pts).length===1; delete pts[e.pointerId];
     if (wasTap){ var rc=c.getBoundingClientRect(), tx=Math.floor(mv.x+(e.clientX-rc.left)/mv.z), ty=Math.floor(mv.y+(e.clientY-rc.top)/mv.z);
       if (tx>=0 && ty>=0 && tx<MAPW && ty<MAPH){ if (advance(Date.now())) flushFinished(); selectTile(tx+","+ty,false);
         var ti=document.getElementById("tileinfo"); if (ti && ti.scrollIntoView && window.innerWidth<700) ti.scrollIntoView({behavior:"smooth",block:"nearest"}); } }
-    if (!Object.keys(pts).length) drag=null; }
-  c.addEventListener("pointerup",up); c.addEventListener("pointercancel",function(e){ delete pts[e.pointerId]; drag=null; });
-  c.addEventListener("wheel",function(e){ e.preventDefault(); zoomTo(mv.z*(e.deltaY<0?1.15:1/1.15)); },{passive:false});
+    var left=Object.keys(pts);
+    if (!left.length) drag=null; else if (left.length===1) panFrom(pts[left[0]]); else pinchStart();
+    requestDraw(); }
+  c.addEventListener("pointerup",up); c.addEventListener("pointercancel",up); c.addEventListener("lostpointercapture",up);
+  c.addEventListener("wheel",function(e){ e.preventDefault(); var rc=c.getBoundingClientRect(); zoomAt(mv.z*(e.deltaY<0?1.15:1/1.15), e.clientX-rc.left, e.clientY-rc.top); },{passive:false});
   var mini=document.getElementById("minic");
   mini.addEventListener("click",function(e){ var rc=mini.getBoundingClientRect(); centerOn(Math.floor((e.clientX-rc.left)/rc.width*MAPW), Math.floor((e.clientY-rc.top)/rc.height*MAPH)); drawMap(); });
 }
-var drawQueued=false;
+var drawQueued=false, mapTick=0;
 function requestDraw(){ if (drawQueued) return; drawQueued=true; (window.requestAnimationFrame||setTimeout)(function(){ drawQueued=false; drawMap(); }); }
-function zoomTo(z){ var c=document.getElementById("mapc"); if (!c) return; var cx=mv.x+c.clientWidth/mv.z/2, cy=mv.y+c.clientHeight/mv.z/2;
-  mv.z=Math.max(6,Math.min(44,z)); mv.x=cx-c.clientWidth/mv.z/2; mv.y=cy-c.clientHeight/mv.z/2; clampView(); requestDraw(); }
+function zoomTo(z){ var c=document.getElementById("mapc"); if (!c) return; zoomAt(z, c.clientWidth/2, c.clientHeight/2); }
+function zoomAt(z, px, py){ // keep the map point under (px,py) fixed while zooming
+  if (!isFinite(z) || !isFinite(px) || !isFinite(py)) return;
+  var wx=mv.x+px/mv.z, wy=mv.y+py/mv.z;
+  mv.z=Math.max(6,Math.min(44,z)); mv.x=wx-px/mv.z; mv.y=wy-py/mv.z; clampView(); requestDraw(); }
 function findNearest(type, lvl){
   var home=S.map.home, best=null, bd=Infinity;
   for (var r=1; r<Math.max(MAPW,MAPH); r++){
@@ -1548,11 +1577,14 @@ function openMarch(tile, mission){
 }
 function marchCap(t){ var cap=0; t.forEach(function(n,i){ cap+=n*LOAD[i]*(1+0.1*(S.tech.logistics||0)); }); return Math.floor(cap); }
 function cargoTotal(){ return RES.reduce(function(a,k){ return a+(marchDraft.cargo[k]||0); },0); }
+function marchFood(t, mission, travel){ var up=0; t.forEach(function(n,i){ up+=n*U[i].up; }); var legs=(mission==="reinforce"||mission==="found")?1:2; return Math.ceil(up*travel/3.6e6*legs); }
+function armyCap(){ return 10000*rallyLv(); } // Age 1: army size is limited to 10,000 x Rally Spot level
 function marchWhy(){
   var d=marchDraft, n=d.t.reduce(function(a,b){return a+b;},0);
   if (!rallyLv()) return "Build a Rally Spot first";
   if (cityMarches().length>=rallyLv()) return "Rally Spot is full ("+rallyLv()+" marches)";
   if (!n) return "Choose some troops";
+  if (n>armyCap()) return "Rally Spot "+rallyLv()+" allows "+fmt(armyCap())+" troops per march";
   for (var i=0;i<12;i++) if (d.t[i]>S.troops[i]) return "Not enough "+U[i].name+"s";
   if (d.mission==="occupy" && ownedIds().length>=S.th) return "Valley limit reached (Town Hall "+S.th+")";
   if (d.mission==="transport"){
@@ -1561,6 +1593,8 @@ function marchWhy(){
     if (cargoTotal() > marchCap(d.t)) return "Too heavy: capacity "+fmt(marchCap(d.t));
   }
   if (d.mission==="conquer" && S.cities.length >= TITLES[S.title].cities) return "Your title allows "+TITLES[S.title].cities+" cities";
+  var fneed=marchFood(d.t,d.mission,travelMs(d.t,TILE_BY[d.tile]))+(d.mission==="transport"?(d.cargo.food||0):0)+(d.mission==="found"?10000:0);
+  if (S.res.food<fneed) return "Needs "+fmt(fneed)+" food for the trip";
   if (d.mission==="found"){
     if (S.cities.length + S.marches.filter(function(x){return x.mission==="found";}).length >= TITLES[S.title].cities) return "Your title allows "+TITLES[S.title].cities+" cities";
     for (var r2=0;r2<RES.length;r2++) if (S.res[RES[r2]]<10000) return "Needs 10k of each resource";
@@ -1573,6 +1607,8 @@ function updateMarchInfo(){
   marchDraft.t.forEach(function(n,i){ cap+=n*LOAD[i]*(1+0.1*(S.tech.logistics||0)); });
   el.textContent = !tm ? "" : marchDraft.mission==="reinforce" ? "Travel "+fmtT(realMs(tm))+". These troops will stay there." :
     marchDraft.mission==="transport" ? "Travel "+fmtT(realMs(tm))+" each way. Carrying "+fmt(cargoTotal())+" of "+fmt(cap)+" capacity." : "Travel "+fmtT(realMs(tm))+" each way. Carries "+fmt(cap)+" loot.";
+  if (tm){ var fd=marchFood(marchDraft.t,marchDraft.mission,tm); if (fd) el.textContent+=" Rations: "+fmt(fd)+" food."; }
+  el.textContent+=" Army size "+fmt(marchDraft.t.reduce(function(x,y){return x+y;},0))+" of "+fmt(armyCap())+".";
   var why=marchWhy(); b.disabled=!!why; b.textContent= why || (marchDraft.mission==="conquer"?"March to conquer":marchDraft.mission==="transport"?"Send resources":marchDraft.mission==="reinforce"?"Send reinforcements":marchDraft.mission==="occupy"?"March to occupy":marchDraft.mission==="found"?"March to found city (10k each)":"March to attack");
   var pv=document.getElementById("marchprev"); if (pv) pv.innerHTML=marchDraft.preview;
 }
@@ -1581,7 +1617,7 @@ function marchSheet(){
   var any=false;
   if (d.mission!=="transport") h+='<div class="farmadd"><span class="dur">Load preset:</span>'+S.presets.map(function(pr,pi){ return '<button class="chipbtn" data-act="march-preset" data-p="'+pi+'" title="'+esc(pr.name)+'"'+(presetTotal(pr)?'':' disabled')+'>'+(pi+1)+'</button>'; }).join("")+'</div>';
   h+='<div class="tscroll"><table class="gt" style="min-width:0"><tbody>';
-  U.forEach(function(u,i){ if (!S.troops[i]) return; any=true;
+  U.forEach(function(u,i){ if (!S.troops[i] && missing(u.req).length) return; if (S.troops[i]) any=true;
     h+='<tr><td>'+u.name+' <span class="dur">('+fmt(S.troops[i])+')</span></td><td><input type="number" min="0" data-march="'+i+'" value="'+(d.t[i]||"")+'" placeholder="0"></td><td><button class="link" data-act="march-max" data-unit="'+i+'">All</button></td></tr>'; });
   h+='</tbody></table></div>';
   if (!any) h+='<p class="warn">You have no troops at home. Train some in the Army tab.</p>';
@@ -1611,6 +1647,7 @@ function previewMarch(){
 function cityMarches(){ var me=C().id; return S.marches.filter(function(x){ return x.city===me; }); }
 function launchMarch(tileId, mission, t, heroId, opt){
   opt=opt||{}; var q=TILE_BY[tileId], tm=travelMs(t,q), dep=opt.dep!=null?opt.dep:S.gt;
+  S.res.food-=marchFood(t,mission,tm);
   for (var i=0;i<12;i++) S.troops[i]-=t[i];
   var hero=heroId?heroById(heroId):null; if (hero) hero.away=true;
   var m={id:S.nextMarchId++, city:C().id, tile:q.id, mission:mission, cargo:opt.cargo||{}, t:t.slice(), hero:hero?hero.id:0, dep:dep, arr:dep+tm, travel:tm, phase:dep>S.gt?"wait":"out", loot:{}};
@@ -1621,6 +1658,7 @@ function launchMarch(tileId, mission, t, heroId, opt){
 function sendMarch(){
   if (marchWhy()) return;
   var d=marchDraft, q=TILE_BY[d.tile], tm=travelMs(d.t,q);
+  S.res.food-=marchFood(d.t,d.mission,tm);
   for (var i=0;i<12;i++) S.troops[i]-=d.t[i];
   var hero=d.hero?heroById(d.hero):null; if (hero) hero.away=true;
   if (d.mission==="found") RES.forEach(function(k){ S.res[k]-=10000; });
@@ -1841,9 +1879,10 @@ function migrate(s){
   }
   if (s.v===21){ s.waiting=(s.waiting||[]).filter(function(h){ return h.tier==="legendary"||h.tier==="historic"; }); s.v=22; }
   if (s.v===22){ s.cities.forEach(function(cc){ cc.gate="open"; }); s.v=23; }
+  if (s.v===23){ s.cities.forEach(function(cc){ cc.reserve={food:0,lumber:0,stone:0,iron:0,gold:0}; }); s.v=24; }
   return s;
 }
-var CITY_KEYS = ["gate","goals","autoTrain","autoMayor","builds","bq","rq","presets","wall","forts","fortQ","name","res","pop","tax","th","inside","fields","tech","build","research","troops","train","mayor","heroes","innOffers","innRefreshAt"];
+var CITY_KEYS = ["reserve","gate","goals","autoTrain","autoMayor","builds","bq","rq","presets","wall","forts","fortQ","name","res","pop","tax","th","inside","fields","tech","build","research","troops","train","mayor","heroes","innOffers","innRefreshAt"];
 function C(){ return S.cities[S.cur]; }
 function installProxies(o){
   CITY_KEYS.forEach(function(k){ Object.defineProperty(o, k, {configurable:true, enumerable:false, get:function(){ return o.cities[o.cur][k]; }, set:function(v){ o.cities[o.cur][k]=v; }}); });
@@ -1854,7 +1893,7 @@ function newCity(id,name,x,y){
   for (i=0;i<24;i++) inside.push(null); for (i=0;i<44;i++) fields.push(null);
   Object.keys(TECH).forEach(function(k){ tech[k]=0; });
   return {id:id,name:name,x:x,y:y,res:{food:10000,lumber:10000,stone:10000,iron:10000,gold:10000},pop:100,tax:20,th:1,inside:inside,fields:fields,tech:tech,
-    build:null,research:null,troops:[0,0,0,0,0,0,0,0,0,0,0,0],train:[],mayor:null,heroes:[],innOffers:[],innRefreshAt:0,wall:0,forts:[0,0,0,0,0],fortQ:null,builds:[],bq:[],rq:[],presets:newPresets(),autoMayor:true,goals:[0,0,0,0,0,0,0,0,0,0,0,0],autoTrain:false,gate:"open"};
+    build:null,research:null,troops:[0,0,0,0,0,0,0,0,0,0,0,0],train:[],mayor:null,heroes:[],innOffers:[],innRefreshAt:0,wall:0,forts:[0,0,0,0,0],fortQ:null,builds:[],bq:[],rq:[],presets:newPresets(),autoMayor:true,goals:[0,0,0,0,0,0,0,0,0,0,0,0],autoTrain:false,gate:"open",reserve:{food:0,lumber:0,stone:0,iron:0,gold:0}};
 }
 var NPRESETS=10;
 function newPresets(){ var a=[]; for (var i=0;i<NPRESETS;i++) a.push({name:"Preset "+(i+1), t:[0,0,0,0,0,0,0,0,0,0,0,0], hero:0, farm:[], auto:false, idx:0, stopOnLoss:true}); return a; }
@@ -1864,7 +1903,7 @@ function builderFree(){ return S.builds.length < BUILDERS; }
 function withCity(ci, fn){ var keep=S.cur; S.cur=ci; try { return fn(); } finally { S.cur=keep; } }
 function cityIndex(id){ for (var i=0;i<S.cities.length;i++) if (S.cities[i].id===id) return i; return 0; }
 var S;
-try { var raw = localStorage.getItem(SAVE_KEY); if (raw){ var p = JSON.parse(raw); if (p && p.v>=1 && p.v<=23) S = migrate(p); } } catch(e){}
+try { var raw = localStorage.getItem(SAVE_KEY); if (raw){ var p = JSON.parse(raw); if (p && p.v>=1 && p.v<=24) S = migrate(p); } } catch(e){}
 if (!S) S = newState();
 S.speed=1;
 installProxies(S);
@@ -2312,7 +2351,7 @@ function fillRepList(){
 }
 
 /* building pages */
-var PAGE_TYPES={townhall:1,academy:1,forge:1,rally:1,market:1}, pg=null;
+var PAGE_TYPES={townhall:1,academy:1,forge:1,rally:1,market:1,warehouse:1}, pg=null;
 function upgradeBlock(w,i){
   var s=getSlot(w,i), d=DEF[s.type], L=s.level, busy=!!buildOn(w,i), h;
   h='<div class="head"><span class="ico">'+ICON[s.type]+'</span><div><h2>'+d.name+'</h2><div class="sub">'+(L>0?"Level "+L:s.type==="walls"?"Not built yet":"Under construction")+'</div></div></div><p>'+d.desc+'</p>';
@@ -2336,6 +2375,12 @@ function viewBuilding(){
   else if (s.type==="forge") h+=armorySection();
   else if (s.type==="rally") h+=presetsSection()+'<p class="hint" style="margin-top:10px">Marches in the field are listed on the Map tab.</p>';
   else if (s.type==="market") h+='<div class="pagelabel">Trade</div>'+viewMarket();
+  else if (s.type==="warehouse"){
+    var rv=S.reserve;
+    h+='<div class="section"><h3>Reserve for building</h3><p class="hint">Auto-train will never spend below these amounts, so your build and research queues always have something to work with. Manual training and everything else ignore it.</p>'+
+      '<div class="tscroll"><table class="gt" style="min-width:0"><tbody>'+RES.map(function(k){ return '<tr><td>'+RNAME[k]+' <span class="dur">('+fmt(S.res[k])+')</span></td><td><input type="number" inputmode="numeric" min="0" step="1000" data-reserve="'+k+'" value="'+(rv[k]||"")+'" placeholder="0"></td></tr>'; }).join("")+'</tbody></table></div>'+
+      '<p class="hint" style="margin-top:6px">Protected from plunder by your Warehouses: '+fmt(warehouseProtect())+' of each.</p></div>';
+  }
   return h;
 }
 
@@ -2365,7 +2410,7 @@ function viewTitlesBody(t,nt,nr){
 
 function goalsSection(){
   var have=armyCount(), h='<div class="section"><div class="shead"><h3>Troop goals</h3><label class="chk"><input type="checkbox" id="autotrain"'+(S.autoTrain?' checked':'')+'> Auto-train</label></div>'+
-    '<p class="hint">Set the army you want this city to keep. With auto-train on, every idle Barracks trains toward the goal furthest from done, and losses get replaced automatically. Counts include troops in training and out on marches.</p>'+
+    '<p class="hint">Set the army you want this city to keep. With auto-train on, every idle Barracks trains toward the goal furthest from done, and losses get replaced automatically. Set a resource reserve in any Warehouse so it never starves your build queue. Counts include troops in training and out on marches.</p>'+
     '<div class="tscroll"><table class="gt" style="min-width:0"><thead><tr><th>Unit</th><th>Have</th><th>Goal</th></tr></thead><tbody>';
   U.forEach(function(u,i){ var locked=missing(u.req).length, g=S.goals[i]||0;
     if (locked && !g && !have[i]) return;
@@ -2375,6 +2420,11 @@ function goalsSection(){
 
 /* army view */
 var trainAmt = {};
+function maxTrainAuto(i){
+  var u=U[i], m=Math.floor(idlePop()/u.pop), rv=S.reserve||{};
+  for (var k in u.cost) m=Math.min(m, Math.floor(Math.max(0,S.res[k]-(rv[k]||0))/u.cost[k]));
+  return Math.max(0,m);
+}
 function maxTrain(i){
   var u=U[i], m=Math.floor(idlePop()/u.pop);
   for (var k in u.cost) m=Math.min(m, Math.floor(S.res[k]/u.cost[k]));
@@ -2691,7 +2741,7 @@ function effectLine(type,L){
   if (type==="stable") return "Horseback Riding up to level "+L+(top?"":" → "+nx);
   if (type==="workshop") return "Machinery and Engineering up to level "+L+(top?"":" → "+nx);
   if (type==="forge") return "Iron Working and Metal Casting up to level "+L+(top?"":" → "+nx);
-  if (type==="rally") return "Logistics, Compass and Privateering up to level "+L+(top?"":" → "+nx);
+  if (type==="rally") return L+" march"+(L>1?"es":"")+" at once, up to "+fmt(10000*L)+" troops each; Logistics, Compass, Privateering and Cartography up to level "+L+(top?"":" → "+nx+" marches, "+fmt(10000*nx)+" troops each");
   if (type==="warehouse") return "Stockpile up to level "+L+(top?"":" → "+nx);
   if (type==="feasting") return "Holds "+L+" hero"+(L===1?"":"es")+(top?"":" → "+nx);
   if (type==="inn") return (1+Math.ceil(L/2))+" heroes for hire, up to level "+(L*3)+(top?"":" → "+(1+Math.ceil(nx/2))+", up to level "+(nx*3));
@@ -2851,9 +2901,9 @@ function autoTrainStep(){
   if (!S.autoTrain) return;
   for (var guard=0; guard<12 && idleBarracks()>=0; guard++){
     var have=armyCount(), best=-1, bestR=0;
-    for (var i=0;i<12;i++){ var g=S.goals[i]||0, d=g-have[i]; if (d<=0 || missing(U[i].req).length || maxTrain(i)<1) continue; var r=d/g; if (r>bestR){ bestR=r; best=i; } }
+    for (var i=0;i<12;i++){ var g=S.goals[i]||0, d=g-have[i]; if (d<=0 || missing(U[i].req).length || maxTrainAuto(i)<1) continue; var r=d/g; if (r>bestR){ bestR=r; best=i; } }
     if (best<0) return;
-    var n=Math.min((S.goals[best]||0)-have[best], maxTrain(best));
+    var n=Math.min((S.goals[best]||0)-have[best], maxTrainAuto(best));
     if (!startTrain(best,n)) return;
   }
 }
@@ -3057,7 +3107,7 @@ document.addEventListener("click",function(e){
     pl.list.forEach(function(w){ launchMarch(waveDraft.tile, waveDraft.mission, w.t, w.hero, {dep:w.dep, label:w.pi}); var lm=S.marches[S.marches.length-1]; lm.arr=w.arr; });
     toast(pl.list.length+" wave"+(pl.list.length>1?"s":"")+" set to land on "+tileName(wq)+" starting in "+fmtT(realMs(pl.first-S.gt))); closeSheet(); refresh(); return; }
   if (act==="march-open"){ openMarch(a.dataset.tile, a.dataset.mission); return; }
-  if (act==="march-max"){ var mu=+a.dataset.unit; marchDraft.t[mu]=S.troops[mu]; var mi=sheetBody.querySelector('[data-march="'+mu+'"]'); if (mi) mi.value=S.troops[mu]; marchDraft.preview=""; updateMarchInfo(); return; }
+  if (act==="march-max"){ var mu=+a.dataset.unit, room=armyCap()-marchDraft.t.reduce(function(x,y,k){ return x+(k===mu?0:y); },0); marchDraft.t[mu]=Math.max(0,Math.min(S.troops[mu],room)); var mi=sheetBody.querySelector('[data-march="'+mu+'"]'); if (mi) mi.value=marchDraft.t[mu]; marchDraft.preview=""; updateMarchInfo(); return; }
   if (act==="march-preview"){ previewMarch(); return; }
   if (act==="cargo-fill"){ var rk=a.dataset.res, room=marchCap(marchDraft.t)-cargoTotal()+(marchDraft.cargo[rk]||0);
     marchDraft.cargo[rk]=Math.max(0,Math.min(Math.floor(S.res[rk]), room)); var ci=sheetBody.querySelector('[data-cargo="'+rk+'"]'); if (ci) ci.value=marchDraft.cargo[rk]; updateMarchInfo(); return; }
@@ -3155,6 +3205,7 @@ document.addEventListener("input",function(e){
   if (e.target.id==="wgap"){ waveDraft.gap=Math.max(0,+e.target.value||0); updateWaveInfo(); }
   if (e.target.id==="hname" && sheetFor && sheetFor.kind==="hero"){ var rh=heroById(sheetFor.id); if (rh && rh.tier!=="historic"){ rh.name=e.target.value.replace(/\s+/g," ").trim()||rh.name; var hh2=document.getElementById("hname-h"); if (hh2) hh2.textContent=rh.name; save(); } }
   if (e.target.id==="repq"){ repQuery=e.target.value; repPage=0; fillRepList(); }
+  if (e.target.dataset.reserve!=null){ S.reserve[e.target.dataset.reserve]=Math.max(0,Math.floor(+e.target.value||0)); save(); }
   if (e.target.dataset.goal!=null){ S.goals[+e.target.dataset.goal]=Math.max(0,Math.floor(+e.target.value||0)); save(); }
   if (e.target.dataset.fort!=null){ var fx=+e.target.dataset.fort; fortAmt[fx]=Math.max(0,Math.floor(+e.target.value||0)); updateFortRow(fx); }
   if (e.target.dataset.cargo!=null){ marchDraft.cargo[e.target.dataset.cargo]=Math.max(0,Math.floor(+e.target.value||0)); updateMarchInfo(); }
@@ -3187,6 +3238,10 @@ applyTheme();
 if (window.matchMedia){ var mq=window.matchMedia("(prefers-color-scheme: dark)"); if (mq.addEventListener) mq.addEventListener("change", function(){ applyTheme(); if (tab==="map") requestDraw(); }); }
 document.getElementById("tabs").addEventListener("scroll", updateTabArrows, {passive:true});
 window.addEventListener("resize", function(){ updateTabArrows(); if (tab==="map") requestDraw(); });
+["orientationchange","pageshow","focus"].forEach(function(ev){ window.addEventListener(ev,function(){ if (tab==="map") setTimeout(requestDraw,60); }); });
+document.addEventListener("visibilitychange",function(){ if (!document.hidden && tab==="map") setTimeout(requestDraw,60); });
+if (window.visualViewport) window.visualViewport.addEventListener("resize",function(){ if (tab==="map") requestDraw(); });
+document.addEventListener("scroll",function(){ if (tab==="map") requestDraw(); },{passive:true});
 advance(Date.now());
 if (finished.length){ toast("Finished while you were away: "+finished.slice(0,4).join(", ")+(finished.length>4?", and more":"")); finished=[]; }
 refresh();
@@ -3195,6 +3250,7 @@ setInterval(function(){
   var changed=advance(Date.now());
   if (finished.length || changed){ flushFinished(); renderQueue(); renderView(tab==="map"); renderSheet(); tickText(); save(); }
   else { tickText(); renderView(false); renderSheet(); }
+  if (tab==="map" && !drag && ++mapTick%2===0) requestDraw();
 },500);
 setTimeout(updateTabArrows,50);
 if ("serviceWorker" in navigator && location.protocol==="https:" && !/claude\.ai|claudeusercontent/.test(location.hostname)){ navigator.serviceWorker.register("sw.js").catch(function(){}); }
